@@ -6,39 +6,53 @@ extern "C" {
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <dht.h>
+#include <EEPROM.h>
 
-#define TIMEOUTMINUTE  60 * 1000
-#define TIMEOUTMINUTES  1 * TIMEOUTMINUTE
-#define SLEEPTIMEMINUTES 60 * 1000 * 1000    // usecs
-#define SLEEPMINUTES    30
-#define SLEEPTIME     SLEEPMINUTES * SLEEPTIMEMINUTES
+#define   TIMEOUTMINUTE     60 * 1000
+#define   TIMEOUTMINUTES    1 * TIMEOUTMINUTE
+#define   SLEEPTIMEMINUTES  60 * 1000 * 1000    // usecs
+#define   SLEEPMINUTES      30
+#define   SLEEPTIME         SLEEPMINUTES * SLEEPTIMEMINUTES
 
-// wifi
-const char* ssid = "LeilaNet2";
-const char* password = "ec1122%f*&";
- 
+
 // The DallasTemperature library can do all this work for you!
 // http://milesburton.com/Dallas_Temperature_Control_Library
 
-#define DS1820Pin 4 // what pin we're connected to
+#define   DS1820Pin   4 // what pin we're connected to
 
 
+//// sensors
 OneWire  ds(DS1820Pin); 
 DallasTemperature dallas(&ds);
 
-// DHT
-#define dht_dpin 2 //no ; here. Set equal to channel sensor is on
+#define   dht_dpin  2
 dht DHT;
+
+MyBatteryMonitor batt(0, 660, 3.65);
+#define   BATTERY_MAX  4.1
+#define   BATTERY_MIN  3.9
+
+//// wifi
+const char* ssid = "LeilaNet2";
+const char* password = "ec1122%f*&";
 
 WiFiClient client;
 
-MyBatteryMonitor batt(0, 660, 3.65);
+/// EEPROM
+bool batteryBelowThreshold = false;
+int batteryBelowThresholdAddr = 0;
 
-// uidBots
+#define STATE_NORMAL                  0
+#define STATE_BATTERY_BELOW_THRESHOLD 1
+
+//// udiBots
 
 String temperatureVariable = "569134db76254213753a108f";
 String humidityVariable = "569134ec76254215afed7070";
 String batteryVariable = "569134fa76254215afed7093";
+
+#define state
+String stateVariable = "56930cbd76254254bd747c6e";
 
 String token = "GioE85MkDexLpsbE1Tt37F3TY2p3Fa6XM4bKvftz9OfC87MrH5bQGceJrVgF";
 
@@ -98,6 +112,30 @@ void loop() {
   ubiSaveValue(humidityVariable, String(humidity));
   ubiSaveValue(batteryVariable, String(battery));
 
+  int eepromReportedBatteryThreshold = EEPROM.read(batteryBelowThresholdAddr);
+
+  if (battery > BATTERY_MAX) {
+    Serial.println("Battery is above MAX");
+    EEPROM.write(batteryBelowThresholdAddr, false);
+  }
+  else {
+    if (battery <= BATTERY_MIN) {
+      if (!eepromReportedBatteryThreshold) {
+        Serial.println("Battery is <= MIN && being reported");
+        ubiSaveValue(stateVariable, String(STATE_BATTERY_BELOW_THRESHOLD));
+        EEPROM.write(batteryBelowThresholdAddr, true);
+      }
+      else {
+        Serial.println("Battery is <= MIN");        
+        ubiSaveValue(stateVariable, String(STATE_NORMAL));
+      }
+    }
+    else {
+      Serial.println("Battery is normal");
+      ubiSaveValue(stateVariable, "0");
+    }
+  }
+  
   Serial.print(".. sleeping for: ");
   Serial.print(SLEEPMINUTES);
   Serial.println(" mins");
