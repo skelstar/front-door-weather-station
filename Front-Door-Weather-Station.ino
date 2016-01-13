@@ -1,3 +1,5 @@
+#include <DHT.h>
+
 #include <ESP8266WiFi.h>
 extern "C" {
   #include "user_interface.h"
@@ -5,7 +7,7 @@ extern "C" {
 #include <MyBatteryMonitor.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <dht.h>
+
 #include <EEPROM.h>
 
 #define   TIMEOUTMINUTE     60 * 1000
@@ -18,15 +20,22 @@ extern "C" {
 // The DallasTemperature library can do all this work for you!
 // http://milesburton.com/Dallas_Temperature_Control_Library
 
-#define   DS1820Pin   4 // what pin we're connected to
+#define   DS1820Pin   0    // what pin we're connected to
+#define   DHTPIN      2
 
 
 //// sensors
 OneWire  ds(DS1820Pin); 
 DallasTemperature dallas(&ds);
 
-#define   dht_dpin  2
-dht DHT;
+// Connect pin 1 (on the left) of the sensor to +5V
+// NOTE: If using a board with 3.3V logic like an Arduino Due connect pin 1
+// to 3.3V instead of 5V!
+// Connect pin 2 of the sensor to whatever your DHTPIN is
+// Connect pin 4 (on the right) of the sensor to GROUND
+// Connect a 10K resistor from pin 2 (data) to pin 1 (power) of the sensor
+#define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
+DHT dht(DHTPIN, DHTTYPE);
 
 MyBatteryMonitor batt(0, 660, 3.65);
 #define   BATTERY_MAX  4.1
@@ -66,6 +75,9 @@ void setup() {
   delay(10);
 
   dallas.begin();
+
+  //dht.setup(dht_dpin, dht.AM2302);    // DHT22
+  dht.begin();
    
   Serial.println();
   Serial.print("Connecting to ");
@@ -88,20 +100,14 @@ void setup() {
 ////////////////////////////////////////////////////////////////////////////////
 
 void loop() {
-  float temp = 0;
-  float humidity = 0;
-  float battery = 0;
 
-  // request
   dallas.requestTemperatures(); // Send the command to get temperatures
-  temp = dallas.getTempCByIndex(0);  //DHT.temperature;
-  
-  DHT.read11(dht_dpin);
-  
-  humidity = DHT.humidity;
+  float temp = dallas.getTempCByIndex(0);  //DHT.temperature;
+    
+  float humidity = dht.readHumidity();
 
   batt.ReadBatteryVoltage();  
-  battery = batt.GetBatteryRemaining(); // analogRead(A0);
+  float battery = batt.GetBatteryRemaining(); // analogRead(A0);
     
   Serial.print("temperature: " + String(temp) + "C,  ");
   Serial.print("humidity: " + String(humidity) + "%");
