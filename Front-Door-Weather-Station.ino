@@ -7,8 +7,8 @@ extern "C" {
 #include <MyBatteryMonitor.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-
-#include <EEPROM.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BMP280.h>
 
 #define   TIMEOUTMINUTE     60 * 1000
 #define   TIMEOUTMINUTES    1 * TIMEOUTMINUTE
@@ -41,23 +41,21 @@ MyBatteryMonitor batt(0, 660, 3.65);
 #define   BATTERY_MAX  4.1
 #define   BATTERY_MIN  3.9
 
+// barometric pressure
+Adafruit_BMP280 baro; // I2C
+
+
 //// wifi
 const char* ssid = "LeilaNet2";
 const char* password = "ec1122%f*&";
 
 WiFiClient client;
 
-/// EEPROM
-bool batteryBelowThreshold = false;
-int batteryBelowThresholdAddr = 0;
-
-#define STATE_NORMAL                  0
-#define STATE_BATTERY_BELOW_THRESHOLD 1
-
 //// udiBots
 
 String temperatureVariable = "569134db76254213753a108f";
 String humidityVariable = "569134ec76254215afed7070";
+String pressureVariable = "5696c82e7625423fc86a4952";
 String batteryVariable = "569134fa76254215afed7093";
 
 #define state
@@ -78,6 +76,10 @@ void setup() {
 
   //dht.setup(dht_dpin, dht.AM2302);    // DHT22
   dht.begin();
+
+  if (!baro.begin()) {
+     Serial.println("Could not find a valid BMP280 sensor, check wiring!");   
+  }
    
   Serial.println();
   Serial.print("Connecting to ");
@@ -108,40 +110,20 @@ void loop() {
 
   batt.ReadBatteryVoltage();  
   float battery = batt.GetBatteryRemaining(); // analogRead(A0);
+
+  int pressure = baro.readPressure();
     
-  Serial.print("temperature: " + String(temp) + "C,  ");
-  Serial.print("humidity: " + String(humidity) + "%");
-  Serial.print("battery: " + String(battery) + "v");
+  Serial.println("temperature: " + String(temp) + "C");
+  Serial.println("humidity: " + String(humidity) + "%");
+  Serial.println("battery: " + String(battery) + "v");
+  Serial.println("pressure: " + String(pressure) + " Pa");
   Serial.println();
 
   ubiSaveValue(temperatureVariable, String(temp));
   ubiSaveValue(humidityVariable, String(humidity));
+  ubiSaveValue(pressureVariable, String(pressure));
   ubiSaveValue(batteryVariable, String(battery));
 
-  int eepromReportedBatteryThreshold = EEPROM.read(batteryBelowThresholdAddr);
-
-  if (battery > BATTERY_MAX) {
-    Serial.println("Battery is above MAX");
-    EEPROM.write(batteryBelowThresholdAddr, false);
-  }
-  else {
-    if (battery <= BATTERY_MIN) {
-      if (!eepromReportedBatteryThreshold) {
-        Serial.println("Battery is <= MIN && being reported");
-        ubiSaveValue(stateVariable, String(STATE_BATTERY_BELOW_THRESHOLD));
-        EEPROM.write(batteryBelowThresholdAddr, true);
-      }
-      else {
-        Serial.println("Battery is <= MIN");        
-        ubiSaveValue(stateVariable, String(STATE_NORMAL));
-      }
-    }
-    else {
-      Serial.println("Battery is normal");
-      ubiSaveValue(stateVariable, "0");
-    }
-  }
-  
   Serial.print(".. sleeping for: ");
   Serial.print(SLEEPMINUTES);
   Serial.println(" mins");
