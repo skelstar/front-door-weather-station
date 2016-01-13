@@ -1,3 +1,5 @@
+#include <DHT.h>
+
 #include <ESP8266WiFi.h>
 extern "C" {
   #include "user_interface.h"
@@ -5,40 +7,61 @@ extern "C" {
 #include <MyBatteryMonitor.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <dht.h>
 
-#define TIMEOUTMINUTE  60 * 1000
-#define TIMEOUTMINUTES  1 * TIMEOUTMINUTE
-#define SLEEPTIMEMINUTES 60 * 1000 * 1000    // usecs
-#define SLEEPMINUTES    30
-#define SLEEPTIME     SLEEPMINUTES * SLEEPTIMEMINUTES
+#include <EEPROM.h>
 
-// wifi
-const char* ssid = "LeilaNet2";
-const char* password = "ec1122%f*&";
- 
+#define   TIMEOUTMINUTE     60 * 1000
+#define   TIMEOUTMINUTES    1 * TIMEOUTMINUTE
+#define   SLEEPTIMEMINUTES  60 * 1000 * 1000    // usecs
+#define   SLEEPMINUTES      30
+#define   SLEEPTIME         SLEEPMINUTES * SLEEPTIMEMINUTES
+
+
 // The DallasTemperature library can do all this work for you!
 // http://milesburton.com/Dallas_Temperature_Control_Library
 
-#define DS1820Pin 4 // what pin we're connected to
+#define   DS1820Pin   0    // what pin we're connected to
+#define   DHTPIN      2
 
 
+//// sensors
 OneWire  ds(DS1820Pin); 
 DallasTemperature dallas(&ds);
 
-// DHT
-#define dht_dpin 2 //no ; here. Set equal to channel sensor is on
-dht DHT;
+// Connect pin 1 (on the left) of the sensor to +5V
+// NOTE: If using a board with 3.3V logic like an Arduino Due connect pin 1
+// to 3.3V instead of 5V!
+// Connect pin 2 of the sensor to whatever your DHTPIN is
+// Connect pin 4 (on the right) of the sensor to GROUND
+// Connect a 10K resistor from pin 2 (data) to pin 1 (power) of the sensor
+#define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
+DHT dht(DHTPIN, DHTTYPE);
+
+MyBatteryMonitor batt(0, 660, 3.65);
+#define   BATTERY_MAX  4.1
+#define   BATTERY_MIN  3.9
+
+//// wifi
+const char* ssid = "LeilaNet2";
+const char* password = "ec1122%f*&";
 
 WiFiClient client;
 
-MyBatteryMonitor batt(0, 660, 3.65);
+/// EEPROM
+bool batteryBelowThreshold = false;
+int batteryBelowThresholdAddr = 0;
 
-// uidBots
+#define STATE_NORMAL                  0
+#define STATE_BATTERY_BELOW_THRESHOLD 1
+
+//// udiBots
 
 String temperatureVariable = "569134db76254213753a108f";
 String humidityVariable = "569134ec76254215afed7070";
 String batteryVariable = "569134fa76254215afed7093";
+
+#define state
+String stateVariable = "56930cbd76254254bd747c6e";
 
 String token = "GioE85MkDexLpsbE1Tt37F3TY2p3Fa6XM4bKvftz9OfC87MrH5bQGceJrVgF";
 
@@ -52,6 +75,9 @@ void setup() {
   delay(10);
 
   dallas.begin();
+
+  //dht.setup(dht_dpin, dht.AM2302);    // DHT22
+  dht.begin();
    
   Serial.println();
   Serial.print("Connecting to ");
@@ -74,20 +100,14 @@ void setup() {
 ////////////////////////////////////////////////////////////////////////////////
 
 void loop() {
-  float temp = 0;
-  float humidity = 0;
-  float battery = 0;
 
-  // request
   dallas.requestTemperatures(); // Send the command to get temperatures
-  temp = dallas.getTempCByIndex(0);  //DHT.temperature;
-  
-  DHT.read11(dht_dpin);
-  
-  humidity = DHT.humidity;
+  float temp = dallas.getTempCByIndex(0);  //DHT.temperature;
+    
+  float humidity = dht.readHumidity();
 
   batt.ReadBatteryVoltage();  
-  battery = batt.GetBatteryRemaining(); // analogRead(A0);
+  float battery = batt.GetBatteryRemaining(); // analogRead(A0);
     
   Serial.print("temperature: " + String(temp) + "C,  ");
   Serial.print("humidity: " + String(humidity) + "%");
@@ -98,6 +118,30 @@ void loop() {
   ubiSaveValue(humidityVariable, String(humidity));
   ubiSaveValue(batteryVariable, String(battery));
 
+  int eepromReportedBatteryThreshold = EEPROM.read(batteryBelowThresholdAddr);
+
+  if (battery > BATTERY_MAX) {
+    Serial.println("Battery is above MAX");
+    EEPROM.write(batteryBelowThresholdAddr, false);
+  }
+  else {
+    if (battery <= BATTERY_MIN) {
+      if (!eepromReportedBatteryThreshold) {
+        Serial.println("Battery is <= MIN && being reported");
+        ubiSaveValue(stateVariable, String(STATE_BATTERY_BELOW_THRESHOLD));
+        EEPROM.write(batteryBelowThresholdAddr, true);
+      }
+      else {
+        Serial.println("Battery is <= MIN");        
+        ubiSaveValue(stateVariable, String(STATE_NORMAL));
+      }
+    }
+    else {
+      Serial.println("Battery is normal");
+      ubiSaveValue(stateVariable, "0");
+    }
+  }
+  
   Serial.print(".. sleeping for: ");
   Serial.print(SLEEPMINUTES);
   Serial.println(" mins");
