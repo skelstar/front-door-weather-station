@@ -9,6 +9,7 @@ extern "C" {
 #include <DallasTemperature.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BMP280.h>
+#include <SparkFunTSL2561.h>
 
 #define   TIMEOUTMINUTE     60 * 1000
 #define   TIMEOUTMINUTES    1 * TIMEOUTMINUTE
@@ -44,6 +45,15 @@ MyBatteryMonitor batt(0, 660, 3.65);
 // barometric pressure
 Adafruit_BMP280 baro; // I2C
 
+// light sensor
+// For more information see the hookup guide at: https://learn.sparkfun.com/tutorials/getting-started-with-the-tsl2561-luminosity-sensor
+
+SFE_TSL2561 light;
+
+boolean gain;     // Gain setting, 0 = X1, 1 = X16;
+unsigned int ms;  // Integration ("shutter") time in milliseconds
+
+
 
 //// wifi
 const char* ssid = "LeilaNet2";
@@ -56,6 +66,7 @@ WiFiClient client;
 String temperatureVariable = "569134db76254213753a108f";
 String humidityVariable = "569134ec76254215afed7070";
 String pressureVariable = "5696c82e7625423fc86a4952";
+String lightVariable = "5696d81e76254266cbddbd39";
 String batteryVariable = "569134fa76254215afed7093";
 
 #define state
@@ -74,12 +85,18 @@ void setup() {
 
   dallas.begin();
 
-  //dht.setup(dht_dpin, dht.AM2302);    // DHT22
   dht.begin();
 
   if (!baro.begin()) {
      Serial.println("Could not find a valid BMP280 sensor, check wiring!");   
   }
+
+  light.begin();
+  gain = 0;
+  unsigned char time = 2;
+  light.setTiming(gain, time, ms);
+  light.setPowerUp();
+
    
   Serial.println();
   Serial.print("Connecting to ");
@@ -112,17 +129,32 @@ void loop() {
   float battery = batt.GetBatteryRemaining(); // analogRead(A0);
 
   int pressure = baro.readPressure();
+
+  unsigned int data0, data1;
+  double lux;    // Resulting lux value
+  boolean lightgood;  // True if neither sensor is saturated 
+  
+  if (light.getData(data0,data1)) {
+    lightgood = light.getLux(gain, ms, data0, data1, lux);
+  }
     
   Serial.println("temperature: " + String(temp) + "C");
   Serial.println("humidity: " + String(humidity) + "%");
   Serial.println("battery: " + String(battery) + "v");
-  Serial.println("pressure: " + String(pressure) + " Pa");
+  Serial.println("pressure: " + String(pressure) + " mb");
+  if (lightgood) {
+    Serial.println("light: " + String(lux) + " lux");
+  } else {
+    Serial.println("light: SATURATED");
+  }
   Serial.println();
 
   ubiSaveValue(temperatureVariable, String(temp));
   ubiSaveValue(humidityVariable, String(humidity));
   ubiSaveValue(pressureVariable, String(pressure));
   ubiSaveValue(batteryVariable, String(battery));
+  if (lightgood)
+    ubiSaveValue(lightVariable, String(lux));
 
   Serial.print(".. sleeping for: ");
   Serial.print(SLEEPMINUTES);
