@@ -1,15 +1,17 @@
 #include <DHT.h>
-
 #include <ESP8266WiFi.h>
 extern "C" {
   #include "user_interface.h"
 }
 #include <MyBatteryMonitor.h>
+#include <UbiDotsVariable.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BMP280.h>
 #include <SparkFunTSL2561.h>
+
+/////////////////////////////////////////////////////////////////////
 
 #define   TIMEOUTMINUTE     60 * 1000
 #define   TIMEOUTMINUTES    1 * TIMEOUTMINUTE
@@ -17,6 +19,7 @@ extern "C" {
 #define   SLEEPMINUTES      30
 #define   SLEEPTIME         SLEEPMINUTES * SLEEPTIMEMINUTES
 
+/////////////////////////////////////////////////////////////////////
 
 // The DallasTemperature library can do all this work for you!
 // http://milesburton.com/Dallas_Temperature_Control_Library
@@ -53,15 +56,34 @@ SFE_TSL2561 light;
 boolean gain;     // Gain setting, 0 = X1, 1 = X16;
 unsigned int ms;  // Integration ("shutter") time in milliseconds
 
-
-
 //// wifi
 const char* ssid = "LeilaNet2";
 const char* password = "ec1122%f*&";
 
 WiFiClient client;
 
+//////////////////////////////////////////////////////////////
+
+
+#define VARIABLE_TEMP   0
+#define VARIABLE_HUMID  1
+#define VARIABLE_PRESS  2
+#define VARIABLE_LIGHT  3
+#define VARIABLE_BATT   4
+
+bool sendVariable[5];
+
 //// udiBots
+
+#define VARIABLE_COUNT  5
+
+UbiDotsVariable variable[VARIABLE_COUNT] = {
+  UbiDotsVariable("569134db76254213753a108f", "temperature", 0, 35),  //  VARIABLE_TEMP
+  UbiDotsVariable("569134ec76254215afed7070", "humidity", 0, 100),  //  VARIABLE_HUMID
+  UbiDotsVariable("5696c82e7625423fc86a4952", "pressure", 95000, 105000),  //  VARIABLE_PRESS
+  UbiDotsVariable("5696d81e76254266cbddbd39", "light", 0, 1000),  //  VARIABLE_LIGHT
+  UbiDotsVariable("569134fa76254215afed7093", "battery", 2.8, 4.3)   //  VARIABLE_BATT
+};
 
 String temperatureVariable = "569134db76254213753a108f";
 String humidityVariable = "569134ec76254215afed7070";
@@ -69,15 +91,16 @@ String pressureVariable = "5696c82e7625423fc86a4952";
 String lightVariable = "5696d81e76254266cbddbd39";
 String batteryVariable = "569134fa76254215afed7093";
 
-#define state
-String stateVariable = "56930cbd76254254bd747c6e";
-
 String token = "GioE85MkDexLpsbE1Tt37F3TY2p3Fa6XM4bKvftz9OfC87MrH5bQGceJrVgF";
 
 const char* server = "things.ubidots.com";
+
 // ========================================================================
 
-void ubiSaveValue(String idvariable, String value);
+void ubiSendVariables(UbiDotsVariable var[VARIABLE_COUNT]);
+void ubiSaveValue(UbiDotsVariable var);
+void ubiSendAllVariables(UbiDotsVariable var[VARIABLE_COUNT]);
+
 
 void setup() {
   Serial.begin(115200);
@@ -120,41 +143,49 @@ void setup() {
 
 void loop() {
 
+  // TEMPERATURE
   dallas.requestTemperatures(); // Send the command to get temperatures
   float temp = dallas.getTempCByIndex(0);  //DHT.temperature;
+  variable[VARIABLE_TEMP].value = String(temp);
+  variable[VARIABLE_TEMP].send = variable[VARIABLE_TEMP].ValueValid(temp);
     
+  // HMIDITY
   float humidity = dht.readHumidity();
+  variable[VARIABLE_HUMID].value = String(humidity);
+  variable[VARIABLE_HUMID].send = variable[VARIABLE_HUMID].ValueValid(humidity);
 
+  // BATTERY
   batt.ReadBatteryVoltage();  
   float battery = batt.GetBatteryRemaining(); // analogRead(A0);
+  variable[VARIABLE_BATT].value = String(battery);
+  variable[VARIABLE_BATT].send = variable[VARIABLE_BATT].ValueValid(battery);
 
+
+  // BARO
   int pressure = baro.readPressure();
+  variable[VARIABLE_PRESS].value = String(pressure);
+  variable[VARIABLE_PRESS].send = variable[VARIABLE_PRESS].ValueValid(pressure);
 
+  // LUX
   unsigned int data0, data1;
   double lux;    // Resulting lux value
   boolean lightgood;  // True if neither sensor is saturated 
   
   if (light.getData(data0,data1)) {
     lightgood = light.getLux(gain, ms, data0, data1, lux);
+    variable[VARIABLE_LIGHT].value = String(lux);
+    variable[VARIABLE_LIGHT].send = lightgood;
   }
-    
-  Serial.println("temperature: " + String(temp) + "C");
-  Serial.println("humidity: " + String(humidity) + "%");
-  Serial.println("battery: " + String(battery) + "v");
-  Serial.println("pressure: " + String(pressure) + " mb");
-  if (lightgood) {
-    Serial.println("light: " + String(lux) + " lux");
-  } else {
-    Serial.println("light: SATURATED");
+
+  // -----------
+
+  for (int i = 0; i < VARIABLE_COUNT; i++) {
+      variable[i].SerialPrintValue();
   }
   Serial.println();
 
-  ubiSaveValue(temperatureVariable, String(temp));
-  ubiSaveValue(humidityVariable, String(humidity));
-  ubiSaveValue(pressureVariable, String(pressure));
-  ubiSaveValue(batteryVariable, String(battery));
-  if (lightgood)
-    ubiSaveValue(lightVariable, String(lux));
+  ubiSendVariables(variable);
+  //ubiSendAllVariables(variable);
 
   Serial.print(".. sleeping for: ");
   Serial.print(SLEEPMINUTES);
@@ -163,39 +194,93 @@ void loop() {
   system_deep_sleep(SLEEPTIME); // usecs
 }
 
-void ubiSaveValue(String idvariable, String value) {
+/// getting 404 (doesn't work)
+void ubiSendAllVariables(UbiDotsVariable var[VARIABLE_COUNT]) {
 
-  int num = 0;
-  String var = "{\"value\": " + String(value) + "}";
-  num = var.length();
+  String payload = "";
+  const String payloadDef = "{\"variable\": \"{VARIABLE}\", \"value\":{VALUE}}";
 
-  delay(100);
+  for (int i = 0; i < VARIABLE_COUNT; i++) {
+      String thisPayload = payloadDef;
+      thisPayload.replace("{VARIABLE}", var[i].GetId());
+      thisPayload.replace("{VALUE}", var[i].value);
+
+      payload += thisPayload;
+      if (i < VARIABLE_COUNT - 1) {
+        payload += ",";
+      }
+  }
+
+  Serial.print("Payload: "); Serial.println(payload);
+
+  delay(200);
   
   if (client.connect(server, 80)) {
+    
     Serial.println("connected ubidots");
-    delay(100);
+    delay(200);
 
-    client.println("POST /api/v1.6/variables/"+idvariable+"/values HTTP/1.1");
-    Serial.println("POST /api/v1.6/variables/"+idvariable+"/values HTTP/1.1");
+    client.println("POST /api/v1.6/collections/values HTTP/1.1");
     client.println("Content-Type: application/json");
-    Serial.println("Content-Type: application/json");
-    client.println("Content-Length: "+String(num));
-    Serial.println("Content-Length: "+String(num));
+    client.println("Content-Length: "+String(payload.length()));
     client.println("X-Auth-Token: "+token);
-    Serial.println("X-Auth-Token: "+token);
     client.println("Host: things.ubidots.com\n");
+    client.print(payload);
+
+    Serial.println("POST /api/v1.6/collections/values HTTP/1.1");
+    Serial.println("Content-Type: application/json");
+    Serial.println("Content-Length: "+String(payload.length()));
+    Serial.println("X-Auth-Token: "+token);
     Serial.println("Host: things.ubidots.com\n");
-    client.print(var);
-    Serial.print(var+"\n");
+    Serial.print(payload);
+
   }
   else {
     Serial.println("Unable to connect?");
   }
+}
 
-  if (client.available()) {
-    char c = client.read();
-    Serial.print(c);
-  }
+void ubiSendVariables(UbiDotsVariable var[VARIABLE_COUNT]) {
+
+  delay(100);
+  
+  for (int i = 0; i < VARIABLE_COUNT; i++) {
+
+    if (var[i].send) {
+      ubiSaveValue(var[i]);
+    } else {
+      var[i].SerialPrintValue();
+    }
+  }  
+}
+
+void ubiSaveValue(UbiDotsVariable var) {
+
+  delay(200);
+  
+  int retriesRemain = 3;
+
+  do {
+    if (client.connect(server, 80)) {
+      
+      String payload = "{\"value\": " + var.value + "}";
+
+      Serial.println("connected ubidots, sending " + var.GetLabel() + ": (" + var.value + ")");
+      delay(200);
+
+      client.println("POST /api/v1.6/variables/" + var.GetId() + "/values HTTP/1.1");
+      client.println("Content-Type: application/json");
+      client.println("Content-Length: "+String(payload.length()));
+      client.println("X-Auth-Token: "+token);
+      client.println("Host: things.ubidots.com\n");
+      client.print(payload);
+
+      break;
+    }
+    else {
+      Serial.println("retrying (" + var.GetLabel() + "): " + retriesRemain--);
+    }
+  } while(retriesRemain > 0);
 }
 
 
