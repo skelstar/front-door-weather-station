@@ -41,7 +41,7 @@ DallasTemperature dallas(&ds);
 #define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
 DHT dht(DHTPIN, DHTTYPE);
 
-MyBatteryMonitor batt(0, 660, 3.65);
+MyBatteryMonitor batt(0, 776, 4.11);
 #define   BATTERY_MAX  4.1
 #define   BATTERY_MIN  3.9
 
@@ -97,9 +97,9 @@ const char* server = "things.ubidots.com";
 
 // ========================================================================
 
-void ubiSendVariables(UbiDotsVariable var[VARIABLE_COUNT]);
-void ubiSaveValue(UbiDotsVariable var);
-void ubiSendAllVariables(UbiDotsVariable var[VARIABLE_COUNT]);
+// void ubiSendVariables(UbiDotsVariable var[VARIABLE_COUNT]);
+// void ubiSaveValue(UbiDotsVariable var);
+// void ubiSendAllVariables(UbiDotsVariable var[VARIABLE_COUNT]);
 
 
 void setup() {
@@ -115,7 +115,7 @@ void setup() {
   }
 
   light.begin();
-  gain = 0;
+  gain = 1;   // default was 0 (low)
   unsigned char time = 2;
   light.setTiming(gain, time, ms);
   light.setPowerUp();
@@ -148,23 +148,27 @@ void loop() {
   float temp = dallas.getTempCByIndex(0);  //DHT.temperature;
   variable[VARIABLE_TEMP].value = String(temp);
   variable[VARIABLE_TEMP].send = variable[VARIABLE_TEMP].ValueValid(temp);
+  variable[VARIABLE_TEMP].SendVariableToUbidots(token);
     
   // HMIDITY
   float humidity = dht.readHumidity();
   variable[VARIABLE_HUMID].value = String(humidity);
   variable[VARIABLE_HUMID].send = variable[VARIABLE_HUMID].ValueValid(humidity);
+  variable[VARIABLE_HUMID].SendVariableToUbidots(token);
 
   // BATTERY
   batt.ReadBatteryVoltage();  
   float battery = batt.GetBatteryRemaining(); // analogRead(A0);
   variable[VARIABLE_BATT].value = String(battery);
   variable[VARIABLE_BATT].send = variable[VARIABLE_BATT].ValueValid(battery);
+  variable[VARIABLE_BATT].SendVariableToUbidots(token);
 
 
   // BARO
   int pressure = baro.readPressure();
-  variable[VARIABLE_PRESS].value = String(pressure);
+  variable[VARIABLE_PRESS].value = String(pressure/100);
   variable[VARIABLE_PRESS].send = variable[VARIABLE_PRESS].ValueValid(pressure);
+  variable[VARIABLE_PRESS].SendVariableToUbidots(token);
 
   // LUX
   unsigned int data0, data1;
@@ -175,6 +179,7 @@ void loop() {
     lightgood = light.getLux(gain, ms, data0, data1, lux);
     variable[VARIABLE_LIGHT].value = String(lux);
     variable[VARIABLE_LIGHT].send = lightgood;
+    variable[VARIABLE_LIGHT].SendVariableToUbidots(token);
   }
 
   // -----------
@@ -184,8 +189,8 @@ void loop() {
   }
   Serial.println();
 
-  ubiSendVariables(variable);
-  //ubiSendAllVariables(variable);
+  // ubiSendVariables(variable);
+  // //ubiSendAllVariables(variable);
 
   Serial.print(".. sleeping for: ");
   Serial.print(SLEEPMINUTES);
@@ -194,93 +199,93 @@ void loop() {
   system_deep_sleep(SLEEPTIME); // usecs
 }
 
-/// getting 404 (doesn't work)
-void ubiSendAllVariables(UbiDotsVariable var[VARIABLE_COUNT]) {
+// /// getting 404 (doesn't work)
+// void ubiSendAllVariables(UbiDotsVariable var[VARIABLE_COUNT]) {
 
-  String payload = "";
-  const String payloadDef = "{\"variable\": \"{VARIABLE}\", \"value\":{VALUE}}";
+//   String payload = "";
+//   const String payloadDef = "{\"variable\": \"{VARIABLE}\", \"value\":{VALUE}}";
 
-  for (int i = 0; i < VARIABLE_COUNT; i++) {
-      String thisPayload = payloadDef;
-      thisPayload.replace("{VARIABLE}", var[i].GetId());
-      thisPayload.replace("{VALUE}", var[i].value);
+//   for (int i = 0; i < VARIABLE_COUNT; i++) {
+//       String thisPayload = payloadDef;
+//       thisPayload.replace("{VARIABLE}", var[i].GetId());
+//       thisPayload.replace("{VALUE}", var[i].value);
 
-      payload += thisPayload;
-      if (i < VARIABLE_COUNT - 1) {
-        payload += ",";
-      }
-  }
+//       payload += thisPayload;
+//       if (i < VARIABLE_COUNT - 1) {
+//         payload += ",";
+//       }
+//   }
 
-  Serial.print("Payload: "); Serial.println(payload);
+//   Serial.print("Payload: "); Serial.println(payload);
 
-  delay(200);
+//   delay(200);
   
-  if (client.connect(server, 80)) {
+//   if (client.connect(server, 80)) {
     
-    Serial.println("connected ubidots");
-    delay(200);
+//     Serial.println("connected ubidots");
+//     delay(200);
 
-    client.println("POST /api/v1.6/collections/values HTTP/1.1");
-    client.println("Content-Type: application/json");
-    client.println("Content-Length: "+String(payload.length()));
-    client.println("X-Auth-Token: "+token);
-    client.println("Host: things.ubidots.com\n");
-    client.print(payload);
+//     client.println("POST /api/v1.6/collections/values HTTP/1.1");
+//     client.println("Content-Type: application/json");
+//     client.println("Content-Length: "+String(payload.length()));
+//     client.println("X-Auth-Token: "+token);
+//     client.println("Host: things.ubidots.com\n");
+//     client.print(payload);
 
-    Serial.println("POST /api/v1.6/collections/values HTTP/1.1");
-    Serial.println("Content-Type: application/json");
-    Serial.println("Content-Length: "+String(payload.length()));
-    Serial.println("X-Auth-Token: "+token);
-    Serial.println("Host: things.ubidots.com\n");
-    Serial.print(payload);
+//     Serial.println("POST /api/v1.6/collections/values HTTP/1.1");
+//     Serial.println("Content-Type: application/json");
+//     Serial.println("Content-Length: "+String(payload.length()));
+//     Serial.println("X-Auth-Token: "+token);
+//     Serial.println("Host: things.ubidots.com\n");
+//     Serial.print(payload);
 
-  }
-  else {
-    Serial.println("Unable to connect?");
-  }
-}
+//   }
+//   else {
+//     Serial.println("Unable to connect?");
+//   }
+// }
 
-void ubiSendVariables(UbiDotsVariable var[VARIABLE_COUNT]) {
+// void ubiSendVariables(UbiDotsVariable var[VARIABLE_COUNT]) {
 
-  delay(100);
+//   delay(100);
   
-  for (int i = 0; i < VARIABLE_COUNT; i++) {
+//   for (int i = 0; i < VARIABLE_COUNT; i++) {
 
-    if (var[i].send) {
-      ubiSaveValue(var[i]);
-    } else {
-      var[i].SerialPrintValue();
-    }
-  }  
-}
+//     if (var[i].send) {
+//       ubiSaveValue(var[i]);
+//     } else {
+//       var[i].SerialPrintValue();
+//     }
+//   }  
+// }
 
-void ubiSaveValue(UbiDotsVariable var) {
+// void ubiSaveValue(UbiDotsVariable var) {
 
-  delay(200);
+//   delay(200);
   
-  int retriesRemain = 3;
+//   int retriesRemain = 3;
 
-  do {
-    if (client.connect(server, 80)) {
+//   do {
+//     if (client.connect(server, 80)) {
       
-      String payload = "{\"value\": " + var.value + "}";
+//       String payload = "{\"value\": " + var.value + "}";
 
-      Serial.println("connected ubidots, sending " + var.GetLabel() + ": (" + var.value + ")");
-      delay(200);
+//       Serial.println("connected ubidots, sending " + var.GetLabel() + ": (" + var.value + ")");
+//       delay(200);
 
-      client.println("POST /api/v1.6/variables/" + var.GetId() + "/values HTTP/1.1");
-      client.println("Content-Type: application/json");
-      client.println("Content-Length: "+String(payload.length()));
-      client.println("X-Auth-Token: "+token);
-      client.println("Host: things.ubidots.com\n");
-      client.print(payload);
+//       client.println("POST /api/v1.6/variables/" + var.GetId() + "/values HTTP/1.1");
+//       client.println("Content-Type: application/json");
+//       client.println("Content-Length: "+String(payload.length()));
+//       client.println("X-Auth-Token: "+token);
+//       client.println("Host: things.ubidots.com\n");
+//       client.print(payload);
 
-      break;
-    }
-    else {
-      Serial.println("retrying (" + var.GetLabel() + "): " + retriesRemain--);
-    }
-  } while(retriesRemain > 0);
-}
+//       break;
+//     }
+//     else {
+//       Serial.println("retrying (" + var.GetLabel() + "): " + retriesRemain--);
+//     }
+//   } while(retriesRemain > 0);
+// }
 
 
